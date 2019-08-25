@@ -60,8 +60,8 @@ telegramBot.on('message', function (msg) {
 
 /* GLOBALS */
 var triggerAvisoDiario;
-var idUsuarioAsignadoAnterior;
-var idUsuarioAsignadoActual;
+var idUsuarioAsignadoAnterior = undefined;
+var idUsuarioAsignadoActual = undefined;
 
 
 /* INITIAL FUNCTIONS */
@@ -71,7 +71,7 @@ anunciarAsignacionTarea();
 
 /* Variables de espera */
 var esperandoNombre = false;
-var esperandoConfirmacion = true;
+var esperandoConfirmacionTarea = true;
 
 
 /* CORE */
@@ -96,38 +96,47 @@ function manageRequest(conversation, userMessage) {
             changeName(conversation, userMessage); 
 			esperandoNombre = false;
 
-		}else if(esperandoConfirmacion){			
+		}else if(esperandoConfirmacionTarea){			
 			let text = undefined;
 
 			switch (userMessage) {
-				case "Acepto" : {
-					text = "Te lo recordare mañana a las 9:00am";
-					esperandoConfirmacion = false;
+				case "Acepto" : case "/Acepto" : {
+					text = "Te lo recordare mañana a las 9:00am.\nCuando termines usa /terminado";
+					let minutos = 10;
+					let recordatorio = "Recuerda limpiar antes de las 23:59 o seras penalizado";
+					triggerAvisoDiario = trigger(idUsuarioAsignadoActual, recordatorio, minutos, 9);
+					esperandoConfirmacionTarea = false;
+
+					console.log(sessions[idUsuarioAsignadoActual]["nombre"]+" Acepto realizar la taria");
 				}
 				break;
 
-				case "No estoy en casa" : {
+				case "No estoy en casa" : case "/NoEstoy" : {
 					text = "Espero que tengas una buena escusa para saltar el turno";
-					
-					tareaCompletada();
-					asignarTarea();
-					anunciarAsignacionTarea();
+					esperandoConfirmacionTarea = false;
+					console.log(sessions[idUsuarioAsignadoActual]["nombre"]+" indico que No esta en casa");
 
-					esperandoConfirmacion = false;
+					cancelTrigger(triggerAvisoDiario);
+					asignarTarea();
+					anunciarAsignacionTarea();				
+
+					
 
 				}
 				break;
 
-				case "Reportar Usuario" : {
+				case "Reportar Usuario" : case "/Reportar" : {
 					if(idUsuarioAsignadoAnterior != undefined){
+						console.log(sessions[idUsuarioAsignadoActual]["nombre"]+" Reporto al usuario "+ sessions[idUsuarioAsignadoAnterior]["nombre"]);
 
-						text = "Usuario reportado";
+						text = sessions[idUsuarioAsignadoAnterior]["nombre"]+" a sido penalizado";
 
-						tareaIncompleta();
+						cancelTrigger(triggerAvisoDiario);
 						asignarTarea();
-						anunciarAsignacionTarea();
+						anunciarAsignacionTarea("reportado");
 
-						esperandoConfirmacion = false;
+						esperandoConfirmacionTarea = false;
+
 					}else{
 						sendMessage(conversation, "No hay usuarios anteriores que reportar");
 					}
@@ -135,7 +144,7 @@ function manageRequest(conversation, userMessage) {
 				break;
 
 				default:{
-					text = "Elige una opcion valida";
+					text = "Elige una opcion valida \n/Acepto /NoEstoy /Reportar";
 				}
 
 			}
@@ -153,21 +162,9 @@ function manageRequest(conversation, userMessage) {
                 }
                     break;
 
-                case "/test" : {
-					asignarTarea();
-					anunciarAsignacionTarea();
-                }
-                    break;
-
-                case "/active" : {
-                	console.log("ejecutando temp");
-					triggerAvisoDiario = trigger("texto", 3);
-                }
-                    break;
-
-
                 case "/terminado" : {
-                	if(conversation == idUsuarioAsignadoActual){
+                	console.log("Terminado Recibido");
+                	if(conversation == idUsuarioAsignadoActual && !esperandoConfirmacionTarea){
                 		console.log(sessions[conversation]["nombre"]+" completo la tarea diaria");
                 		sendMessage(conversation, "Has completado la tarea diaria");
 						cancelTrigger(triggerAvisoDiario);
@@ -237,45 +234,50 @@ function changeName(conversation, userMessage){
 function asignarTarea(){
 	let keys = Object.keys(sessions);
 	var min = keys[0];
-	keys.forEach(function (item) {		
+	//buscar fecha mas antigua
+	keys.forEach(function (item) {	
+		console.log(sessions[item]["nombre"]+" : "+sessions[item]["tareaDiaria"]["ultimoDiaCompletada"]);	
+
+
 		if(sessions[min]["tareaDiaria"]["ultimoDiaCompletada"]>sessions[item]["tareaDiaria"]["ultimoDiaCompletada"]){
 			min = item;
 		}
 	});
 
-	sessions[min]["tareaDiaria"]["asignada"] = 1;
+	sessions[min]["tareaDiaria"]["asignada"] = new Date()+1;
 	guardarSesiones(sessions); 
 	idUsuarioAsignadoAnterior = idUsuarioAsignadoActual;
 	idUsuarioAsignadoActual = min;
+
+
+	if(sessions[idUsuarioAsignadoAnterior] != undefined){
+		console.log("Asignado anterior: "+sessions[idUsuarioAsignadoAnterior]["nombre"]);
+	}
+	console.log("Asignado actualmente: "+sessions[idUsuarioAsignadoActual]["nombre"]);
 }
 
 
-function anunciarAsignacionTarea(){
+function anunciarAsignacionTarea(estado){
+	
+
+
 	if(idUsuarioAsignadoAnterior != undefined){
-		let mensaje = sessions[idUsuarioAsignadoAnterior]["nombre"]+" a terminado su tara";
+		let mensaje = sessions[idUsuarioAsignadoAnterior]["nombre"]+" a terminado su tarea";
 		sendMessage(idUsuarioAsignadoActual, mensaje);
 	}
 
-	avisador();
-
-
-
-}
-
-function avisador(){
-	console.log("Le toca limpiar a "+sessions[idUsuarioAsignadoActual]["nombre"]);
+		console.log("Le toca limpiar a "+sessions[idUsuarioAsignadoActual]["nombre"]);
 
 	let recordatorio = sessions[idUsuarioAsignadoActual]["nombre"]+", te toca realizar las tares diarias antes del dia "+(new Date().getDate()+1)+" a las 23:59";
 	let markup = setButtons('aviso');
 	sendMessage(idUsuarioAsignadoActual, recordatorio, markup);
 
+	esperandoConfirmacionTarea = true;
 	
 
-	let minutos = 1;
-	triggerAvisoDiario = trigger(idUsuarioAsignadoActual, recordatorio, minutos, new Date());
 
-	esperandoConfirmacion = true;
 }
+
 
 
 
@@ -291,19 +293,25 @@ function avisador(){
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-function trigger(conversation, texto, minutos, fecha){
+function trigger(conversation, texto, minutos, hora){
 	var myVar = setInterval(myTimer, (minutos*1000)*60 );
 
 	function myTimer() {
 		//Aplicar condicion para enviar respuesta si fecha == X
-	 	sendMessage(conversation, texto);
+		if(hora != undefined){
+			if(hora == new Date.getHours()){
+				sendMessage(conversation, texto);
+			}
+		}else{
+	 		sendMessage(conversation, texto);
+		}
 	}
 
 	return myVar;
 }
 
 function cancelTrigger(trigger){
-	
+	tareaCompletada();
 	clearInterval(trigger);
 	
 }
@@ -312,13 +320,15 @@ function cancelTrigger(trigger){
 function tareaCompletada(){
 	sessions[idUsuarioAsignadoActual]["tareaDiaria"]["asignada"]=0;
 	sessions[idUsuarioAsignadoActual]["tareaDiaria"]["ultimoDiaCompletada"] = new Date();
+	guardarSesiones(sessions);
 	
 }
 
 
 function tareaIncompleta(){
-	sessions[idUsuarioAsignadoAnterior]["tareaDiaria"]["asignada"]=1;
-	sessions[idUsuarioAsignadoAnterior]["tareaDiaria"]["ultimoDiaCompletada"] = new Date(2000,1);	
+	sessions[idUsuarioAsignadoAnterior]["tareaDiaria"]["asignada"]= new Date()+1;
+	sessions[idUsuarioAsignadoAnterior]["tareaDiaria"]["ultimoDiaCompletada"] = new Date(2000,1);
+	guardarSesiones(sessions);	
 }
 
 
@@ -408,6 +418,7 @@ function sendMessage(conversation, botMessage, markup) {
         }
 
         telegramBot.sendMessage(conversation, botMessage, markup);
+    
     } else {
         console.log("Error, el mensaje 'botMessage' recibido en 'function sendMessage(conversation, botMessage, markup)' esta vacio");
     }
